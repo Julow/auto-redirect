@@ -22,10 +22,39 @@ function dictIter(dict, func)
 	}
 }
 
+var actions = {
+	query: function(request, data)
+	{
+		var query = splitQuery(request.url);
+		var redirect = false;
+		dictIter(data.query, function(param, value)
+		{
+			if (!query[1].hasOwnProperty(param))
+			{
+				redirect = true;
+				query[1][param] = value;
+			}
+		})
+		if (redirect)
+		{
+			var url = queryToUrl(query);
+			console.log("redirect " + url);
+			return ({redirectUrl: url});
+		}
+		return (null);
+	},
+	replace: function(request, data)
+	{
+		return ({
+			redirectUrl: request.url.replace(data.pattern, data.replace)
+		});
+	}
+};
+
 var urlSplitRegex = /([^\?]+)(?:\??(.+))?/;
 var queryRegex = /([^=]+)=([^&]+)/g;
 
-// ("url", {"param": "value"})
+// ["url", {"param": "value"}]
 function splitQuery(url)
 {
 	var split = [];
@@ -41,6 +70,7 @@ function splitQuery(url)
 			return (match);
 		});
 	}
+	console.log(split);
 	return (split);
 }
 
@@ -52,47 +82,23 @@ function queryToUrl(query)
 	dictIter(query[1], function(param, value)
 	{
 		url += first ? '?' : '&';
+		first = true;
 		url += param + '=' + value;
 	});
 	return (url);
 }
 
-function onBeforeRequest(details)
-{
-	for (var i = 0; i < redirects.length; i++)
+chrome.webRequest.onBeforeRequest.addListener(function(request)
 	{
-		var r = redirects[i];
-		if (!r.pattern.test(details.url))
-			continue ;
-		if (r.type == "replace")
+		for (var i = 0; i < redirects.length; i++)
 		{
-			return ({
-				redirectUrl: details.url.replace(r.pattern, r.replace)
-			});
+			var r = redirects[i];
+			if (!r.pattern.test(request.url))
+				continue ;
+			var ret = actions[r.type](request, r);
+			if (ret)
+				return (ret);
 		}
-		else if (r.type == "query")
-		{
-			var query = splitQuery(details.url);
-			var redirect = false;
-			dictIter(r.query, function(param, value)
-			{
-				if (!query[1].hasOwnProperty(param))
-				{
-					redirect = true;
-					query[1][param] = value;
-				}
-			})
-			if (redirect)
-			{
-				console.log("redirect");
-				return ({redirectUrl: queryToUrl(query)});
-			}
-			else
-				console.log("all queries are here, no redirects");
-		}
-	}
-	return ({});
-}
-
-chrome.webRequest.onBeforeRequest.addListener(onBeforeRequest,
+		return ({});
+	},
 	{urls: ["<all_urls>"]}, ["blocking"]);
